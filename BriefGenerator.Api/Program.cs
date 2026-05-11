@@ -1,4 +1,5 @@
 using BriefGenerator.Api.Data;
+using BriefGenerator.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +12,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Register the AI Service
+builder.Services.AddScoped<IAiProcessingService, AiProcessingService>();
 
 var app = builder.Build();
 
