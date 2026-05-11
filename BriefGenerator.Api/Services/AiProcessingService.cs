@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
+using UglyToad.PdfPig; 
+using System.Text;
 
 namespace BriefGenerator.Api.Services
 {
@@ -61,6 +63,7 @@ namespace BriefGenerator.Api.Services
 
             var brief = new Brief
             {
+                Id = Guid.NewGuid(),
                 IntakeSessionId = intakeId,
                 StructuredJson = structuredBrief,
                 MissingFieldsJson = missingInfo,
@@ -70,6 +73,17 @@ namespace BriefGenerator.Api.Services
 
             intakeSession.Status = "generated";
             _context.Briefs.Add(brief);
+            
+            // FLOW A FIX: Automatically generate the Client Share Token!
+            var shareLink = new ShareLink
+            {
+                Id = Guid.NewGuid(),
+                BriefId = brief.Id,
+                Token = Guid.NewGuid().ToString("N"),
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+            _context.ShareLinks.Add(shareLink);
+
             await _context.SaveChangesAsync();
         }
 
@@ -111,11 +125,27 @@ namespace BriefGenerator.Api.Services
                     var imagePart = ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), mimeType);
                     var textPart = ChatMessageContentPart.CreateTextPart("Extract all readable text from this image. If it's a diagram or sketch, describe the contents and flow in detail.");
                     
-                    var response = await _chatClient.CompleteChatAsync(
-                        new UserChatMessage(textPart, imagePart)
-                    );
-
+                    var response = await _chatClient.CompleteChatAsync(new UserChatMessage(textPart, imagePart));
                     return response.Value.Content[0].Text;
+                }
+
+                // 4. PDFs (PdfPig Text Extraction)
+                if (extension is ".pdf")
+                {
+                    _logger.LogInformation("Extracting text from PDF: {FileName}", file.FileName);
+                    
+                    return await Task.Run(() => 
+                    {
+                        var textBuilder = new StringBuilder();
+                        using (var document = PdfDocument.Open(file.StoragePath))
+                        {
+                            foreach (var page in document.GetPages())
+                            {
+                                textBuilder.AppendLine(page.Text);
+                            }
+                        }
+                        return textBuilder.ToString();
+                    });
                 }
 
                 _logger.LogWarning("Unsupported file type for extraction: {Extension}", extension);
@@ -179,15 +209,8 @@ You MUST output EXACTLY this JSON structure. Map your findings to these specific
 }
 If any piece of information is missing from the raw text, leave the string empty or the array empty.";
 
-            var response = await _chatClient.CompleteChatAsync(
-                new SystemChatMessage(systemPrompt),
-                new UserChatMessage($"Raw Text:\n{extractedText}")
-            );
-
-            var content = response.Value.Content[0].Text;
-            content = content.Replace("```json", "").Replace("```", "").Trim();
-            
-            return content;
+            var response = await _chatClient.CompleteChatAsync(new SystemChatMessage(systemPrompt), new UserChatMessage($"Raw Text:\n{extractedText}"));
+            return response.Value.Content[0].Text.Replace("```json", "").Replace("```", "").Trim();
         }
 
         public async Task<string> DetectMissingInformationAsync(string structuredJson)
@@ -199,15 +222,8 @@ Identify any fields that are deeply crucial but currently empty or vague (e.g., 
 Return ONLY a JSON array of strings representing the missing fields you recommend asking the client about.
 Example: [""budget"", ""timeline""]";
 
-            var response = await _chatClient.CompleteChatAsync(
-                new SystemChatMessage(systemPrompt),
-                new UserChatMessage(structuredJson)
-            );
-
-            var content = response.Value.Content[0].Text;
-            content = content.Replace("```json", "").Replace("```", "").Trim();
-
-            return content;
+            var response = await _chatClient.CompleteChatAsync(new SystemChatMessage(systemPrompt), new UserChatMessage(structuredJson));
+            return response.Value.Content[0].Text.Replace("```json", "").Replace("```", "").Trim();
         }
     }
 }

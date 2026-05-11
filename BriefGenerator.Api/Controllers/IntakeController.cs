@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using UglyToad.PdfPig;
 
 namespace BriefGenerator.Api.Controllers
 {
@@ -146,8 +147,13 @@ namespace BriefGenerator.Api.Controllers
 
     public class CreateIntakeRequest
     {
+        [FromForm(Name = "Title")]
         public string? Title { get; set; }
+        
+        [FromForm(Name = "Notes")]
         public string? Notes { get; set; }
+
+        [FromForm(Name = "Files")]
         public List<IFormFile>? Files { get; set; }
     }
 }
