@@ -3,11 +3,13 @@ using BriefGenerator.Api.Models;
 using BriefGenerator.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace BriefGenerator.Api.Controllers
 {
-    [Authorize]
+    // [Authorize] <-- Commented out for dev hack
+    [AllowAnonymous]
     [ApiController]
     [Route("api/intake")]
     public class IntakeController : ControllerBase
@@ -25,8 +27,13 @@ namespace BriefGenerator.Api.Controllers
         public async Task<IActionResult> Create([FromForm] CreateIntakeRequest request)
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            
+            // DEV HACK: Fallback user ID
             if (!Guid.TryParse(userIdStr, out var userId))
-                return Unauthorized();
+            {
+                userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                await EnsureDummyUserExistsAsync(userId);
+            }
 
             var intakeSession = new IntakeSession
             {
@@ -118,6 +125,22 @@ namespace BriefGenerator.Api.Controllers
 
             var brief = _context.Briefs.FirstOrDefault(b => b.IntakeSessionId == id);
             return Ok(new { id = intake.Id, status = intake.Status, brief });
+        }
+
+        // DEV HACK: Helper to auto-create the dummy user
+        private async Task EnsureDummyUserExistsAsync(Guid userId)
+        {
+            if (!await _context.Users.AnyAsync(u => u.Id == userId))
+            {
+                _context.Users.Add(new User
+                {
+                    Id = userId,
+                    Name = "Dev Dummy",
+                    Email = "dummy@dev.local",
+                    PasswordHash = "dummy"
+                });
+                await _context.SaveChangesAsync();
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 using BriefGenerator.Api.Data;
+using BriefGenerator.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -6,7 +7,8 @@ using System.Security.Claims;
 
 namespace BriefGenerator.Api.Controllers
 {
-    [Authorize]
+    //[Authorize]
+    [AllowAnonymous] // DEV HACK: Bypass Auth
     [ApiController]
     [Route("api/briefs")]
     public class BriefsController : ControllerBase
@@ -22,8 +24,13 @@ namespace BriefGenerator.Api.Controllers
         public async Task<IActionResult> GetEmployeeBriefs()
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            
+            // DEV HACK: Fallback user ID
             if (!Guid.TryParse(userIdStr, out var userId))
-                return Unauthorized();
+            {
+                userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+                await EnsureDummyUserExistsAsync(userId);
+            }
 
             var intakeIds = await _context.IntakeSessions
                 .Where(i => i.UserId == userId)
@@ -59,6 +66,21 @@ namespace BriefGenerator.Api.Controllers
 
             await _context.SaveChangesAsync();
             return Ok(brief);
+        }
+
+        private async Task EnsureDummyUserExistsAsync(Guid userId)
+        {
+            if (!await _context.Users.AnyAsync(u => u.Id == userId))
+            {
+                _context.Users.Add(new User
+                {
+                    Id = userId,
+                    Name = "Dev Dummy",
+                    Email = "dummy@dev.local",
+                    PasswordHash = "dummy"
+                });
+                await _context.SaveChangesAsync();
+            }
         }
     }
 
