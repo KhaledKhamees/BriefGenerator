@@ -6,5 +6,6 @@
         public Guid BriefId { get; set; }
         public string FieldName { get; set; }
         public string ResponseText { get; set; }
+        public Brief Brief { get; set; }
     }
 }

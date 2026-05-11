@@ -8,5 +8,6 @@
         public string FileType { get; set; }
         public string StoragePath { get; set; } = string.Empty;
         public string ExtractedText { get; set; } = string.Empty ;
+        public IntakeSession IntakeSession { get; set; }
     }
 }

@@ -8,5 +8,6 @@
         public string MarkdownOutput { get; set; }
         public string MissingFieldsJson { get; set; }
         public string Status { get; set; }
+        public IntakeSession intakeSession { get; set; }
     }
 }
