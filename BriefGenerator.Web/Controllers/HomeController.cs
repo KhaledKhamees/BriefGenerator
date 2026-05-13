@@ -1,26 +1,23 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BriefGenerator.Web.Models;
-using BriefGenerator.Web.Services;
 
 namespace BriefGenerator.Web.Controllers;
 
-[Authorize]
 public class HomeController : Controller
 {
-    private readonly AuthenticatedApiClient _api;
+    private readonly IHttpClientFactory _clientFactory;
 
-    public HomeController(AuthenticatedApiClient api)
+    public HomeController(IHttpClientFactory clientFactory)
     {
-        _api = api;
+        _clientFactory = clientFactory;
     }
 
     // GET: / — Dashboard
     public async Task<IActionResult> Index()
     {
-        var client = _api.CreateClient();
+        var client = _clientFactory.CreateClient("ApiClient");
         var response = await client.GetAsync("api/briefs");
 
         var briefs = new List<BriefDto>();
@@ -37,11 +34,10 @@ public class HomeController : Controller
     [HttpGet]
     public async Task<IActionResult> Details(Guid id)
     {
-        var client = _api.CreateClient();
+        var client = _clientFactory.CreateClient("ApiClient");
 
         var briefResponse = await client.GetAsync($"api/briefs/{id}");
-        if (!briefResponse.IsSuccessStatusCode)
-            return NotFound();
+        if (!briefResponse.IsSuccessStatusCode) return NotFound();
 
         var brief = await briefResponse.Content.ReadFromJsonAsync<BriefDto>(
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -50,17 +46,16 @@ public class HomeController : Controller
         StructuredBriefData? structured = null;
         if (!string.IsNullOrWhiteSpace(brief.StructuredJson))
         {
-            try { structured = JsonSerializer.Deserialize<StructuredBriefData>(brief.StructuredJson,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+            try
+            {
+                structured = JsonSerializer.Deserialize<StructuredBriefData>(
+                    brief.StructuredJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
             catch { }
         }
 
-        List<string> missingFields = new();
-        if (!string.IsNullOrWhiteSpace(brief.MissingFieldsJson))
-        {
-            try { missingFields = JsonSerializer.Deserialize<List<string>>(brief.MissingFieldsJson) ?? new(); }
-            catch { }
-        }
+        var missingFields = ParseMissingFields(brief.MissingFieldsJson);
 
         ShareLinkDto? shareLink = null;
         var shareLinkResponse = await client.GetAsync($"api/briefs/{id}/share-link");
@@ -94,14 +89,13 @@ public class HomeController : Controller
     [HttpPost]
     public async Task<IActionResult> CreateIntake(IntakeViewModel model)
     {
-        // Title is required — catch it before hitting the API
         if (string.IsNullOrWhiteSpace(model.Title))
         {
             ModelState.AddModelError("Title", "Project title is required.");
             return View(model);
         }
 
-        var client = _api.CreateClient();
+        var client = _clientFactory.CreateClient("ApiClient");
         using var content = new MultipartFormDataContent();
 
         content.Add(new StringContent(model.Title.Trim()), "Title");
@@ -138,16 +132,8 @@ public class HomeController : Controller
             return RedirectToAction("Processing", new { id = intakeId });
         }
 
-        // Surface the actual API error so we can diagnose it
         var errorBody = await response.Content.ReadAsStringAsync();
-        var errorMsg = response.StatusCode switch
-        {
-            System.Net.HttpStatusCode.Unauthorized => "Authentication failed. Please sign out and sign in again.",
-            System.Net.HttpStatusCode.Forbidden    => "You don't have permission to create intakes.",
-            _ => $"API error ({(int)response.StatusCode}): {errorBody}"
-        };
-
-        ModelState.AddModelError(string.Empty, errorMsg);
+        ModelState.AddModelError(string.Empty, $"Failed ({(int)response.StatusCode}): {errorBody}");
         return View(model);
     }
 
@@ -163,7 +149,7 @@ public class HomeController : Controller
     [HttpGet]
     public async Task<IActionResult> IntakeStatus(string id)
     {
-        var client = _api.CreateClient();
+        var client = _clientFactory.CreateClient("ApiClient");
         var response = await client.GetAsync($"api/intake/{id}");
         if (!response.IsSuccessStatusCode)
             return Json(new { status = "error" });
@@ -171,7 +157,12 @@ public class HomeController : Controller
         var data = await response.Content.ReadFromJsonAsync<IntakeStatusDto>(
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-        return Json(new { status = data?.Status, briefId = data?.Brief?.Id, shareToken = data?.ShareToken });
+        return Json(new
+        {
+            status = data?.Status,
+            briefId = data?.Brief?.Id,
+            shareToken = data?.ShareToken
+        });
     }
 
     public IActionResult Privacy() => View();
@@ -179,4 +170,50 @@ public class HomeController : Controller
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public IActionResult Error() =>
         View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+
+    // ── Shared helper ─────────────────────────────────────────────────────
+    /// <summary>
+    /// Parses MissingFieldsJson which Gemini returns as either:
+    ///   ["budget", "timeline"]
+    ///   or [{"clarifying_question": "...", "reason": "..."}, ...]
+    /// Returns a flat list of strings in both cases.
+    /// </summary>
+    internal static List<string> ParseMissingFields(string? json)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(json)) return result;
+
+        try
+        {
+            var elements = JsonSerializer.Deserialize<List<JsonElement>>(json);
+            if (elements == null) return result;
+
+            foreach (var el in elements)
+            {
+                switch (el.ValueKind)
+                {
+                    case JsonValueKind.String:
+                        var str = el.GetString();
+                        if (!string.IsNullOrWhiteSpace(str)) result.Add(str);
+                        break;
+
+                    case JsonValueKind.Object:
+                        // Try common property names Gemini uses
+                        foreach (var key in new[] { "clarifying_question", "question", "field", "name" })
+                        {
+                            if (el.TryGetProperty(key, out var prop) &&
+                                prop.ValueKind == JsonValueKind.String)
+                            {
+                                var s = prop.GetString();
+                                if (!string.IsNullOrWhiteSpace(s)) { result.Add(s); break; }
+                            }
+                        }
+                        break;
+                }
+            }
+        }
+        catch { }
+
+        return result;
+    }
 }

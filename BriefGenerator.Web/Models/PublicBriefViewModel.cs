@@ -5,7 +5,10 @@ namespace BriefGenerator.Web.Models
         public string Token { get; set; } = string.Empty;
         public BriefDto? Brief { get; set; }
         public StructuredBriefData? Structured { get; set; }
+        /// <summary>Display strings for the missing fields (questions or field names).</summary>
         public List<string> MissingFields { get; set; } = new();
+        /// <summary>Canonical field names in the same order as MissingFields, e.g. ["budget","timeline"].</summary>
+        public List<string> MissingFieldNames { get; set; } = new();
     }
 
     public class SubmitAnswersViewModel

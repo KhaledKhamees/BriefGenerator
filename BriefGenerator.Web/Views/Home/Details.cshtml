@@ -173,8 +173,12 @@
                     <ul class="list-unstyled mb-0">
                         @foreach (var r in clientResponses)
                         {
+                            var label = (r.FieldName ?? "").Contains(' ')
+                                ? r.FieldName
+                                : System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                                    .ToTitleCase((r.FieldName ?? "").Replace("_", " "));
                             <li class="py-1 border-bottom">
-                                <span class="fw-semibold text-capitalize">@r.FieldName:</span>
+                                <span class="fw-semibold">@label:</span>
                                 <span class="ms-2">@r.ResponseText</span>
                             </li>
                         }
@@ -214,16 +218,16 @@
                 <div class="card mb-3 border-warning">
                     <div class="card-header bg-warning text-dark">⚠️ Missing Information</div>
                     <div class="card-body">
-                        <p class="small text-muted mb-2">The AI flagged these fields as missing or vague. The client can fill them in via the share link.</p>
-                        <ul class="list-unstyled mb-0">
+                        <p class="small text-muted mb-2">The AI flagged these gaps. The client can fill them in via the share link.</p>
+                        <ol class="mb-0 ps-3">
                             @foreach (var field in missingFields)
                             {
-                                <li class="py-1 border-bottom small">
-                                    <span class="text-warning me-1">●</span>
-                                    <span class="text-capitalize">@field.Replace("_", " ")</span>
-                                </li>
+                                var display = field.Contains(' ') ? field
+                                    : System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                                        .ToTitleCase(field.Replace("_", " "));
+                                <li class="py-1 border-bottom small">@display</li>
                             }
-                        </ul>
+                        </ol>
                     </div>
                 </div>
             }

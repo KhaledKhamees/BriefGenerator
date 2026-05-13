@@ -134,22 +134,19 @@ namespace BriefGenerator.Api.Controllers
 
             var brief = shareLink.Brief;
 
-            var greetingPrompt = $@"You are a friendly and professional project requirements assistant for a software/design agency.
+            var greetingPrompt = $@"You are a project requirements assistant.
 
-A client has just opened their project brief for review. Here is the brief:
+A client just opened their project brief. Here is the brief:
 {brief.StructuredJson}
 
-Missing or vague fields identified by the system:
+These are the ONLY fields that need to be collected:
 {brief.MissingFieldsJson}
 
-Your task: Write a SHORT, warm, personalised opening message (3-5 sentences max) that:
-1. Greets the client and references the actual project by name
-2. Briefly summarises what the brief covers so far (1 sentence)
-3. Proactively mentions 1-2 specific things that could be improved, clarified, or added — be concrete, not generic
-4. Ends with ONE specific question about the most important missing or vague piece
+Write a greeting of MAX 2 sentences:
+1. Greet them by project name.
+2. Ask directly about the FIRST field in the missing fields list above — nothing else.
 
-Do NOT use bullet points. Write in a natural, conversational tone. Do NOT start with ""Hi there"" — be more specific.
-Do NOT include any ##FIELD_UPDATE## markers in this greeting.";
+Be short and direct. No bullet points. Do not mention any other topics.";
 
             try
             {
@@ -179,7 +176,7 @@ Do NOT include any ##FIELD_UPDATE## markers in this greeting.";
                     .GetProperty("parts")[0]
                     .GetProperty("text").GetString() ?? string.Empty;
 
-                return Ok(new { greeting = greeting.Trim() });
+                return Ok(new { greeting = greeting.Trim(), missingFieldNames = ExtractMissingFieldNames(brief.MissingFieldsJson) });
             }
             catch (Exception ex)
             {
@@ -188,8 +185,7 @@ Do NOT include any ##FIELD_UPDATE## markers in this greeting.";
         }
 
         /// <summary>
-        /// Interactive AI chat endpoint for the client share page.
-        /// The AI proactively leads the conversation — suggesting improvements and asking about missing info.
+        /// Interactive AI chat for the client share page.
         /// </summary>
         [HttpPost("{token}/chat")]
         public async Task<IActionResult> Chat(string token, [FromBody] ChatRequest request)
@@ -206,27 +202,24 @@ Do NOT include any ##FIELD_UPDATE## markers in this greeting.";
 
             var brief = shareLink.Brief;
 
-            var systemPrompt = $@"You are a friendly and professional project requirements assistant for a software/design agency.
+            var systemPrompt = $@"You are a friendly project requirements assistant helping a client review and complete their project brief.
 
-Your job is to have a proactive, natural conversation with the CLIENT to help them refine and complete their project brief.
-
-Here is the current project brief:
+Here is the current brief:
 {brief.StructuredJson}
 
-Missing or vague fields identified:
+These fields are currently missing or incomplete:
 {brief.MissingFieldsJson}
 
-Your behavior rules:
-1. Be warm, concise, and conversational — not robotic or formal.
-2. Be PROACTIVE: don't just answer questions, actively suggest improvements, flag vague requirements, and propose additions the client may not have thought of.
-3. Ask ONE question at a time. Never ask multiple questions in one message.
-4. When the client answers, acknowledge it naturally, then either dig deeper or move to the next gap.
-5. If you notice something in the brief that seems incomplete or could cause problems later (e.g. no timeline, vague features, missing platform info), bring it up even if the client didn't ask.
-6. If the client seems satisfied and all gaps are covered, suggest they confirm the brief.
-7. Keep responses SHORT (2-4 sentences) unless the client asks for detail.
-8. At the END of your reply, if the client's message contained a concrete answer to a missing field,
-   append this on its own line (do not include it otherwise):
-   ##FIELD_UPDATE##{{""field"": ""field_name"", ""value"": ""extracted value""}}
+Your job:
+- Have a natural, friendly conversation with the client.
+- Naturally work through the missing fields above — ask about them conversationally, one at a time.
+- Keep replies short (2-3 sentences max).
+- When the client provides information that fills a missing field, acknowledge it warmly and move to the next one.
+- When all missing fields are covered, let the client know and suggest confirming the brief.
+- If the client asks about anything in the brief, answer clearly and helpfully.
+
+When the client's message contains a clear answer to one of these fields, append this on a new line at the very end of your reply (nothing after it):
+##FIELD_UPDATE##{{""field"": ""field_name"", ""value"": ""the value""}}
 
 Valid field names: project_name, client_name, business_goal, target_users, features, platforms, design_requirements, technical_constraints, timeline, budget.";
 
@@ -235,7 +228,6 @@ Valid field names: project_name, client_name, business_goal, target_users, featu
                 var apiKey = _configuration["GeminiApiKey"] ?? throw new InvalidOperationException("Gemini API key missing");
                 var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={apiKey}";
 
-                // Build conversation history for Gemini multi-turn format
                 var contents = new List<object>();
                 foreach (var msg in request.History ?? new List<ChatMessage>())
                 {
@@ -245,7 +237,6 @@ Valid field names: project_name, client_name, business_goal, target_users, featu
                         parts = new[] { new { text = msg.Content } }
                     });
                 }
-                // Add the new user message
                 contents.Add(new
                 {
                     role = "user",
@@ -275,7 +266,6 @@ Valid field names: project_name, client_name, business_goal, target_users, featu
                     .GetProperty("parts")[0]
                     .GetProperty("text").GetString() ?? string.Empty;
 
-                // Parse out any ##FIELD_UPDATE## marker
                 string? fieldName = null;
                 string? fieldValue = null;
                 string cleanReply = rawReply;
@@ -284,43 +274,120 @@ Valid field names: project_name, client_name, business_goal, target_users, featu
                 if (markerIndex >= 0)
                 {
                     cleanReply = rawReply[..markerIndex].Trim();
-                    var jsonPart = rawReply[(markerIndex + "##FIELD_UPDATE##".Length)..].Trim();
-                    try
-                    {
-                        var update = JsonSerializer.Deserialize<JsonElement>(jsonPart);
-                        fieldName = update.GetProperty("field").GetString();
-                        fieldValue = update.GetProperty("value").GetString();
+                    var afterMarker = rawReply[(markerIndex + "##FIELD_UPDATE##".Length)..].Trim();
+                    var jsonStart = afterMarker.IndexOf('{');
+                    var jsonEnd   = afterMarker.LastIndexOf('}');
 
-                        // Persist the extracted answer as a ClientResponse
-                        if (!string.IsNullOrWhiteSpace(fieldName) && !string.IsNullOrWhiteSpace(fieldValue))
+                    if (jsonStart >= 0 && jsonEnd > jsonStart)
+                    {
+                        try
                         {
-                            _context.ClientResponses.Add(new ClientResponse
+                            var update = JsonSerializer.Deserialize<JsonElement>(afterMarker[jsonStart..(jsonEnd + 1)]);
+                            fieldName  = update.GetProperty("field").GetString()?.Trim();
+                            fieldValue = update.GetProperty("value").GetString()?.Trim();
+
+                            if (!string.IsNullOrWhiteSpace(fieldName) && !string.IsNullOrWhiteSpace(fieldValue))
                             {
-                                Id = Guid.NewGuid(),
-                                BriefId = brief.Id,
-                                FieldName = fieldName,
-                                ResponseText = fieldValue
-                            });
-                            brief.Status = "client_responded";
-                            var intake = await _context.IntakeSessions.FindAsync(brief.IntakeSessionId);
-                            if (intake != null) intake.Status = "client_responded";
-                            await _context.SaveChangesAsync();
+                                var existing = await _context.ClientResponses
+                                    .FirstOrDefaultAsync(r => r.BriefId == brief.Id && r.FieldName == fieldName);
+                                if (existing != null)
+                                    existing.ResponseText = fieldValue;
+                                else
+                                    _context.ClientResponses.Add(new ClientResponse
+                                    {
+                                        Id = Guid.NewGuid(),
+                                        BriefId = brief.Id,
+                                        FieldName = fieldName,
+                                        ResponseText = fieldValue
+                                    });
+
+                                brief.Status = "client_responded";
+                                var intake = await _context.IntakeSessions.FindAsync(brief.IntakeSessionId);
+                                if (intake != null) intake.Status = "client_responded";
+                                await _context.SaveChangesAsync();
+                            }
+                        }
+                        catch (Exception parseEx)
+                        {
+                            Console.WriteLine($"[Chat] parse failed: {parseEx.Message} | raw: {afterMarker}");
                         }
                     }
-                    catch { /* ignore parse errors on the marker */ }
                 }
 
-                return Ok(new
-                {
-                    reply = cleanReply,
-                    fieldUpdated = fieldName,
-                    fieldValue
-                });
+                return Ok(new { reply = cleanReply, fieldUpdated = fieldName, fieldValue });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { error = "Chat failed", detail = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Extracts canonical field names from MissingFieldsJson.
+        /// Handles both ["budget","timeline"] and [{"clarifying_question":"..."}] shapes.
+        /// Falls back to matching known field names from the brief JSON.
+        /// </summary>
+        private static List<string> ExtractMissingFieldNames(string? missingFieldsJson)
+        {
+            var knownFields = new[] { "project_name", "client_name", "business_goal", "target_users",
+                "features", "platforms", "design_requirements", "technical_constraints", "timeline", "budget" };
+
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(missingFieldsJson)) return result;
+
+            try
+            {
+                var elements = JsonSerializer.Deserialize<List<JsonElement>>(missingFieldsJson);
+                if (elements == null) return result;
+
+                foreach (var el in elements)
+                {
+                    if (el.ValueKind == JsonValueKind.String)
+                    {
+                        var s = el.GetString()?.Trim().ToLower().Replace(" ", "_");
+                        if (!string.IsNullOrWhiteSpace(s) && knownFields.Contains(s))
+                            result.Add(s);
+                    }
+                    else if (el.ValueKind == JsonValueKind.Object)
+                    {
+                        string? found = null;
+
+                        // Try explicit field key first
+                        foreach (var key in new[] { "field", "field_name", "name" })
+                        {
+                            if (el.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String)
+                            {
+                                var s = prop.GetString()?.Trim().ToLower().Replace(" ", "_");
+                                if (!string.IsNullOrWhiteSpace(s) && knownFields.Contains(s))
+                                { found = s; break; }
+                            }
+                        }
+
+                        // Infer from question text
+                        if (found == null)
+                        {
+                            foreach (var key in new[] { "clarifying_question", "question" })
+                            {
+                                if (el.TryGetProperty(key, out var q) && q.ValueKind == JsonValueKind.String)
+                                {
+                                    var text = q.GetString()?.ToLower() ?? "";
+                                    foreach (var field in knownFields)
+                                    {
+                                        if (text.Contains(field.Replace("_", " ")) || text.Contains(field))
+                                        { found = field; break; }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (found != null) result.Add(found);
+                    }
+                }
+            }
+            catch { }
+
+            return result.Distinct().ToList();
         }
 
         // ── Private Gemini helper (multi-turn) ──────────────────────────────

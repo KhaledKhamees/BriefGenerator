@@ -78,7 +78,49 @@ namespace BriefGenerator.Web.Models
         [JsonPropertyName("budget")]
         public string? Budget { get; set; }
 
+        /// <summary>
+        /// Gemini sometimes returns this as List&lt;string&gt;, sometimes as
+        /// List&lt;object&gt; with nested fields. We accept JsonElement so we
+        /// can handle both shapes without throwing.
+        /// </summary>
         [JsonPropertyName("missing_information")]
-        public List<string>? MissingInformation { get; set; }
+        public List<System.Text.Json.JsonElement>? MissingInformationRaw { get; set; }
+
+        /// <summary>Flattened list of missing-field strings regardless of shape.</summary>
+        [JsonIgnore]
+        public List<string> MissingInformationFlat
+        {
+            get
+            {
+                var result = new List<string>();
+                if (MissingInformationRaw == null) return result;
+
+                foreach (var el in MissingInformationRaw)
+                {
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = el.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                    }
+                    else if (el.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        // Shape: {"clarifying_question": "...", "reason": "..."}
+                        if (el.TryGetProperty("clarifying_question", out var q) &&
+                            q.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            var s = q.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                        }
+                        else if (el.TryGetProperty("question", out var q2) &&
+                                 q2.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            var s = q2.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                        }
+                    }
+                }
+                return result;
+            }
+        }
     }
 }

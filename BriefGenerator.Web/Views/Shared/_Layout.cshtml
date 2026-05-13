@@ -16,45 +16,19 @@
                 <a class="navbar-brand fw-bold" asp-controller="Home" asp-action="Index">
                     <span class="text-primary">Brief</span>Gen
                 </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse">
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                        data-bs-target=".navbar-collapse">
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    @if (User.Identity?.IsAuthenticated == true)
-                    {
-                        <ul class="navbar-nav flex-grow-1">
-                            <li class="nav-item">
-                                <a class="nav-link" asp-controller="Home" asp-action="Index">Dashboard</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" asp-controller="Home" asp-action="CreateIntake">New Intake</a>
-                            </li>
-                        </ul>
-                        <ul class="navbar-nav ms-auto align-items-center">
-                            <li class="nav-item me-2">
-                                <span class="navbar-text text-secondary small">
-                                    👤 @User.Identity.Name
-                                </span>
-                            </li>
-                            <li class="nav-item">
-                                <form asp-action="Logout" asp-controller="Account" method="post" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-secondary btn-sm">Sign Out</button>
-                                </form>
-                            </li>
-                        </ul>
-                    }
-                    else
-                    {
-                        <ul class="navbar-nav flex-grow-1"></ul>
-                        <ul class="navbar-nav ms-auto align-items-center gap-2">
-                            <li class="nav-item">
-                                <a class="nav-link" asp-controller="Account" asp-action="Login">Sign In</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="btn btn-primary btn-sm" asp-controller="Account" asp-action="Register">Get Started</a>
-                            </li>
-                        </ul>
-                    }
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Home" asp-action="Index">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Home" asp-action="CreateIntake">New Intake</a>
+                        </li>
+                    </ul>
                 </div>
             </div>
         </nav>

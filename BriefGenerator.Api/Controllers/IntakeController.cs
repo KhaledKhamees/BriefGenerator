@@ -8,13 +8,14 @@ using System.Security.Claims;
 
 namespace BriefGenerator.Api.Controllers
 {
-    [Authorize]
+    [AllowAnonymous]
     [ApiController]
     [Route("api/intake")]
     public class IntakeController : ControllerBase
     {
         private readonly AppDbContext _context;
         private readonly IServiceScopeFactory _scopeFactory;
+        private static readonly Guid DevUserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public IntakeController(AppDbContext context, IServiceScopeFactory scopeFactory)
         {
@@ -22,23 +23,25 @@ namespace BriefGenerator.Api.Controllers
             _scopeFactory = scopeFactory;
         }
 
-        private Guid? CurrentUserId()
+        private async Task<Guid> GetUserIdAsync()
         {
             var str = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            return Guid.TryParse(str, out var id) ? id : null;
+            if (Guid.TryParse(str, out var id)) return id;
+
+            await EnsureDevUserAsync();
+            return DevUserId;
         }
 
-        // ── POST /api/intake/create ───────────────────────────────────────
+        // POST /api/intake/create
         [HttpPost("create")]
         public async Task<IActionResult> Create([FromForm] CreateIntakeRequest request)
         {
-            var userId = CurrentUserId();
-            if (userId == null) return Unauthorized();
+            var userId = await GetUserIdAsync();
 
             var intakeSession = new IntakeSession
             {
                 Id = Guid.NewGuid(),
-                UserId = userId.Value,
+                UserId = userId,
                 Title = request.Title ?? "New Intake",
                 Status = "uploaded",
                 CreatedAt = DateTime.UtcNow
@@ -95,7 +98,6 @@ namespace BriefGenerator.Api.Controllers
             _context.UploadedFiles.AddRange(uploadedFiles);
             await _context.SaveChangesAsync();
 
-            // Fire AI pipeline in background
             Task.Run(async () =>
             {
                 using var scope = _scopeFactory.CreateScope();
@@ -107,16 +109,12 @@ namespace BriefGenerator.Api.Controllers
             return Ok(new { intakeId = intakeSession.Id, status = "processing" });
         }
 
-        // ── GET /api/intake/{id} ──────────────────────────────────────────
+        // GET /api/intake/{id}
         [HttpGet("{id}")]
         public async Task<IActionResult> GetIntake(Guid id)
         {
-            var userId = CurrentUserId();
-            if (userId == null) return Unauthorized();
-
             var intake = await _context.IntakeSessions.FindAsync(id);
             if (intake == null) return NotFound();
-            if (intake.UserId != userId) return Forbid();
 
             var brief = await _context.Briefs.FirstOrDefaultAsync(b => b.IntakeSessionId == id);
             if (brief == null)
@@ -131,6 +129,21 @@ namespace BriefGenerator.Api.Controllers
             var shareUrl = shareToken is null ? null : $"/api/public/brief/{shareToken}";
 
             return Ok(new { id = intake.Id, status = intake.Status, brief, shareToken, shareUrl });
+        }
+
+        private async Task EnsureDevUserAsync()
+        {
+            if (!await _context.Users.AnyAsync(u => u.Id == DevUserId))
+            {
+                _context.Users.Add(new User
+                {
+                    Id = DevUserId,
+                    Name = "Dev User",
+                    Email = "dev@briefgen.local",
+                    PasswordHash = "dev"
+                });
+                await _context.SaveChangesAsync();
+            }
         }
     }
 

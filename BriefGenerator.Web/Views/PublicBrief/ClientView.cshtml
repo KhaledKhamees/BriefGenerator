@@ -288,18 +288,20 @@
                     <!-- Missing fields indicator -->
                     @if (Model.MissingFields.Any() && !isConfirmed)
                     {
-                        <div class="brief-section warning mt-2">
-                            <h6>⚠️ Missing Information</h6>
-                            <ul class="mb-0 list-unstyled" id="missingList">
+                        <div class="brief-section warning mt-2" id="missingSection">
+                            <h6>⚠️ Questions for You</h6>
+                            <ul class="mb-0 list-unstyled">
                                 @foreach (var f in Model.MissingFields)
                                 {
-                                    <li id="missing-@f.Replace("_", "-")" class="py-1 border-bottom small">
-                                        <span class="text-warning me-1">●</span>
-                                        <span class="text-capitalize">@f.Replace("_", " ")</span>
+                                    var display = f.Contains(' ') ? f
+                                        : System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                                            .ToTitleCase(f.Replace("_", " "));
+                                    <li class="py-1 border-bottom small">
+                                        <span class="text-warning me-1">●</span>@display
                                     </li>
                                 }
                             </ul>
-                            <p class="small text-muted mt-2 mb-0">Chat with the AI assistant to fill these in →</p>
+                            <p class="small text-muted mt-2 mb-0">Chat with the AI assistant to answer these →</p>
                         </div>
                     }
                 </div>
@@ -369,74 +371,51 @@
 
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const TOKEN    = '@Model.Token';
-        // Chat goes through the web app proxy — no cross-origin issues
-        const CHAT_URL      = `/brief/${TOKEN}/chat`;
-        const GREETING_URL  = `/brief/${TOKEN}/chat/greeting`;
+        const TOKEN        = '@Model.Token';
+        const CHAT_URL     = `/brief/${TOKEN}/chat`;
+        const GREETING_URL = `/brief/${TOKEN}/chat/greeting`;
 
-        // Multi-turn conversation history (sent to API for context)
-        // Pre-seeded with the AI greeting once it loads, so follow-up turns have context
-        const history = [];
-
+        const history    = [];
         const messagesEl = document.getElementById('chatMessages');
         const inputEl    = document.getElementById('chatInput');
         const sendBtn    = document.getElementById('sendBtn');
 
-        // ── Load AI greeting on page open ─────────────────────────────────
+        // ── Load greeting ─────────────────────────────────────────────────
         async function loadGreeting() {
             try {
                 const res  = await fetch(GREETING_URL);
-                const raw  = await res.text();
-                const data = JSON.parse(raw);
+                const data = JSON.parse(await res.text());
                 const greeting = (data.greeting ?? '').trim();
-
-                // Replace the typing indicator with the real bubble
                 const wrapper = document.getElementById('greetingWrapper');
                 if (wrapper) {
                     wrapper.innerHTML = `
                         <div class="bubble-label">BriefGen AI</div>
                         <div class="bubble bubble-ai">${escapeHtml(greeting).replace(/\n/g, '<br>')}</div>`;
                 }
-
-                // Seed history so the AI remembers its own opening
-                if (greeting) {
-                    history.push({ role: 'assistant', content: greeting });
-                }
-            } catch (err) {
-                // Fallback to a generic greeting if the API call fails
+                if (greeting) history.push({ role: 'assistant', content: greeting });
+            } catch {
                 const wrapper = document.getElementById('greetingWrapper');
-                if (wrapper) {
-                    wrapper.innerHTML = `
-                        <div class="bubble-label">BriefGen AI</div>
-                        <div class="bubble bubble-ai">Hi! 👋 I've reviewed your project brief. Feel free to ask me anything or let me know if you'd like to make any changes.</div>`;
-                }
-                console.warn('[Greeting] failed:', err);
+                if (wrapper) wrapper.innerHTML = `
+                    <div class="bubble-label">BriefGen AI</div>
+                    <div class="bubble bubble-ai">Hi! 👋 I've reviewed your project brief. Feel free to ask me anything or let me know what you'd like to change.</div>`;
             }
-            // Enable input after greeting loads
             setLoading(false);
         }
 
-        // Disable input until greeting is ready, then load
         setLoading(true);
         loadGreeting();
 
-        // ── Auto-resize textarea ──────────────────────────────────────────
+        // ── Input events ──────────────────────────────────────────────────
         inputEl?.addEventListener('input', () => {
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
         });
-
-        // ── Send on Enter (Shift+Enter = newline) ─────────────────────────
         inputEl?.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
         });
-
         sendBtn?.addEventListener('click', sendMessage);
 
-        // ── Core send ─────────────────────────────────────────────────────
+        // ── Send ──────────────────────────────────────────────────────────
         async function sendMessage() {
             const text = inputEl.value.trim();
             if (!text || sendBtn.disabled) return;
@@ -447,153 +426,97 @@
             inputEl.style.height = 'auto';
             setLoading(true);
 
-            // Declare typingId outside try so catch can access it
             let typingId = null;
-
             try {
                 typingId = showTyping();
 
                 const res = await fetch(CHAT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: text,
-                        history: history.slice(0, -1)
-                    })
+                    body: JSON.stringify({ message: text, history: history.slice(0, -1) })
                 });
 
-                removeTyping(typingId);
-                typingId = null;
+                removeTyping(typingId); typingId = null;
 
-                // Read body as text first so we can inspect it regardless of status
                 const rawBody = await res.text();
-                console.log('[Chat] status:', res.status, 'body:', rawBody);
+                console.log('[Chat]', res.status, rawBody);
 
                 if (!res.ok) {
-                    let errMsg = `⚠️ Server error (${res.status}). Please try again.`;
-                    try {
-                        const errData = JSON.parse(rawBody);
-                        if (errData.error) errMsg = `⚠️ ${errData.error}`;
-                        if (errData.detail) errMsg += ` — ${errData.detail}`;
-                    } catch {}
-                    appendBubble('ai', errMsg);
-                    setLoading(false);
-                    inputEl.focus();
-                    return;
+                    let msg = `⚠️ Error ${res.status}. Please try again.`;
+                    try { const e = JSON.parse(rawBody); if (e.error) msg = `⚠️ ${e.error}`; } catch {}
+                    appendBubble('ai', msg);
+                    setLoading(false); inputEl.focus(); return;
                 }
 
-                let data;
-                try {
-                    data = JSON.parse(rawBody);
-                } catch {
-                    appendBubble('ai', '⚠️ Received an unexpected response. Please try again.');
-                    setLoading(false);
-                    inputEl.focus();
-                    return;
-                }
-
+                const data = JSON.parse(rawBody);
                 const reply = (data.reply ?? '').trim();
                 if (reply) {
                     appendBubble('ai', reply);
                     history.push({ role: 'assistant', content: reply });
-                } else {
-                    appendBubble('ai', '⚠️ The AI returned an empty response. Please try again.');
                 }
 
-                if (data.fieldUpdated) {
-                    markFieldFilled(data.fieldUpdated, data.fieldValue ?? '');
-                    appendFieldToast(data.fieldUpdated, data.fieldValue ?? '');
+                // Show a small toast when a field is saved — no strikethrough, no tracking
+                if (data.fieldUpdated && data.fieldValue) {
+                    const label = data.fieldUpdated.replace(/_/g, ' ')
+                        .replace(/\b\w/g, c => c.toUpperCase());
+                    appendFieldToast(label, data.fieldValue);
                 }
 
             } catch (err) {
                 if (typingId) removeTyping(typingId);
-                console.error('[Chat] fetch error:', err);
-                appendBubble('ai', `⚠️ Network error: ${err.message}. Make sure both servers are running.`);
+                appendBubble('ai', `⚠️ Network error: ${err.message}`);
             }
 
             setLoading(false);
             inputEl.focus();
         }
 
-        // ── DOM helpers ───────────────────────────────────────────────────
+        // ── Helpers ───────────────────────────────────────────────────────
         function appendBubble(role, text) {
             const isUser = role === 'user';
             const wrapper = document.createElement('div');
             wrapper.style.cssText = `display:flex;flex-direction:column;align-items:${isUser ? 'flex-end' : 'flex-start'};`;
-
             const label = document.createElement('div');
             label.className = 'bubble-label' + (isUser ? ' user-label' : '');
             label.textContent = isUser ? 'You' : 'BriefGen AI';
-
             const bubble = document.createElement('div');
             bubble.className = 'bubble ' + (isUser ? 'bubble-user' : 'bubble-ai');
             bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
-
             wrapper.appendChild(label);
             wrapper.appendChild(bubble);
             messagesEl.appendChild(wrapper);
             scrollToBottom();
         }
 
-        function appendFieldToast(field, value) {
+        function appendFieldToast(label, value) {
             const toast = document.createElement('div');
             toast.className = 'field-toast';
-            toast.textContent = `✅ Saved: ${field.replace(/_/g, ' ')} → "${value}"`;
+            toast.textContent = `✅ Saved: ${label} → "${value}"`;
             messagesEl.appendChild(toast);
             scrollToBottom();
         }
 
         function showTyping() {
             const id = 'typing-' + Date.now();
-            const wrapper = document.createElement('div');
-            wrapper.id = id;
-            wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;';
-            wrapper.innerHTML = `
-                <div class="bubble-label">BriefGen AI</div>
+            const w = document.createElement('div');
+            w.id = id;
+            w.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;';
+            w.innerHTML = `<div class="bubble-label">BriefGen AI</div>
                 <div class="typing-indicator">
-                    <div class="typing-dot"></div>
-                    <div class="typing-dot"></div>
-                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
                 </div>`;
-            messagesEl.appendChild(wrapper);
+            messagesEl.appendChild(w);
             scrollToBottom();
             return id;
         }
 
-        function removeTyping(id) {
-            document.getElementById(id)?.remove();
+        function removeTyping(id) { document.getElementById(id)?.remove(); }
+        function setLoading(on) { if (sendBtn) sendBtn.disabled = on; if (inputEl) inputEl.disabled = on; }
+        function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+        function escapeHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
-        function markFieldFilled(field, value) {
-            const el = document.getElementById('missing-' + field.replace(/_/g, '-'));
-            if (el) {
-                el.style.textDecoration = 'line-through';
-                el.style.opacity = '0.5';
-                const check = document.createElement('span');
-                check.className = 'text-success fw-semibold small ms-1';
-                check.textContent = `✓ ${value}`;
-                el.appendChild(check);
-            }
-        }
-
-        function setLoading(on) {
-            if (sendBtn) sendBtn.disabled = on;
-            if (inputEl) inputEl.disabled = on;
-        }
-
-        function scrollToBottom() {
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-
-        function escapeHtml(str) {
-            return str
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
-
-        // ── Confirm form spinner ──────────────────────────────────────────
         document.getElementById('confirmForm')?.addEventListener('submit', () => {
             const btn = document.getElementById('confirmBtn');
             if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
