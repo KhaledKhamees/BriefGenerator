@@ -1,50 +1,263 @@
 @model BriefGenerator.Web.Models.BriefDto
+@using System.Text.Json
 
 @{
     ViewData["Title"] = "Brief Details";
+    var structured = ViewBag.Structured as BriefGenerator.Web.Models.StructuredBriefData;
+    var missingFields = ViewBag.MissingFields as List<string> ?? new List<string>();
+    var shareLink = ViewBag.ShareLink as BriefGenerator.Web.Models.ShareLinkDto;
+    var clientResponses = ViewBag.ClientResponses as List<BriefGenerator.Web.Models.ClientResponseDto> ?? new();
+
+    var statusClass = Model.Status switch
+    {
+        "processing"        => "status-processing",
+        "awaiting_client"   => "status-awaiting_client",
+        "client_responded"  => "status-client_responded",
+        "confirmed"         => "status-confirmed",
+        "failed"            => "status-failed",
+        _                   => "status-uploaded"
+    };
+
+    var projectTitle = structured?.ProjectName ?? "Untitled Brief";
+    var shareUrl = shareLink != null
+        ? $"{Context.Request.Scheme}://{Context.Request.Host}/brief/{shareLink.Token}"
+        : null;
 }
 
 <div class="container mt-4">
-    <h2>Brief Details (@Model.Id.ToString().Substring(0, 8))</h2>
-    <div class="mb-3">
-        <span class="badge bg-info text-dark">Status: @Model.Status</span>
+    <!-- Header row -->
+    <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+        <div>
+            <a asp-action="Index" class="text-muted text-decoration-none small">← Dashboard</a>
+            <h2 class="fw-bold mb-1 mt-1">@projectTitle</h2>
+            <span class="status-badge @statusClass">@Model.Status</span>
+            @if (!string.IsNullOrWhiteSpace(structured?.ClientName))
+            {
+                <span class="ms-2 text-muted small">Client: <strong>@structured.ClientName</strong></span>
+            }
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (shareUrl != null)
+            {
+                <button class="btn btn-outline-primary btn-sm" onclick="copyShareLink()" id="copyBtn">
+                    📋 Copy Share Link
+                </button>
+            }
+        </div>
     </div>
 
-    @if (!string.IsNullOrEmpty(Model.StructuredJson))
-    {
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header bg-light">
-                <h4 class="mb-0">Structured Brief Data</h4>
-            </div>
-            <div class="card-body bg-light">
-                <pre><code>@Model.StructuredJson</code></pre>
-            </div>
-        </div>
-    }
+    <div class="row g-4">
+        <!-- Left column: Brief content -->
+        <div class="col-lg-8">
 
-    @if (!string.IsNullOrEmpty(Model.MarkdownOutput))
-    {
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header bg-light">
-                <h4 class="mb-0">Markdown Output</h4>
-            </div>
-            <div class="card-body">
-                <pre style="white-space: pre-wrap;">@Model.MarkdownOutput</pre>
-            </div>
-        </div>
-    }
+            @if (structured != null)
+            {
+                <!-- Business Goal -->
+                @if (!string.IsNullOrWhiteSpace(structured.BusinessGoal))
+                {
+                    <div class="brief-section">
+                        <h6>🎯 Business Goal</h6>
+                        <p>@structured.BusinessGoal</p>
+                    </div>
+                }
 
-    @if (!string.IsNullOrEmpty(Model.MissingFieldsJson))
-    {
-        <div class="card mb-4 shadow-sm border-warning">
-            <div class="card-header bg-warning">
-                <h4 class="mb-0">Missing Information Identified</h4>
-            </div>
-            <div class="card-body">
-                <pre><code>@Model.MissingFieldsJson</code></pre>
-            </div>
-        </div>
-    }
+                <!-- Target Users -->
+                @if (structured.TargetUsers?.Any() == true)
+                {
+                    <div class="brief-section">
+                        <h6>👥 Target Users</h6>
+                        <div>
+                            @foreach (var u in structured.TargetUsers)
+                            {
+                                <span class="tag-pill">@u</span>
+                            }
+                        </div>
+                    </div>
+                }
 
-    <a asp-action="Index" class="btn btn-secondary">Back to List</a>
+                <!-- Features -->
+                @if (structured.Features?.Any() == true)
+                {
+                    <div class="brief-section">
+                        <h6>⚙️ Features</h6>
+                        <ul>
+                            @foreach (var f in structured.Features)
+                            {
+                                <li>@f</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                <!-- Platforms -->
+                @if (structured.Platforms?.Any() == true)
+                {
+                    <div class="brief-section">
+                        <h6>🖥️ Platforms</h6>
+                        <div>
+                            @foreach (var p in structured.Platforms)
+                            {
+                                <span class="tag-pill">@p</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <!-- Design Requirements -->
+                @if (structured.DesignRequirements?.Any() == true)
+                {
+                    <div class="brief-section">
+                        <h6>🎨 Design Requirements</h6>
+                        <ul>
+                            @foreach (var d in structured.DesignRequirements)
+                            {
+                                <li>@d</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                <!-- Technical Constraints -->
+                @if (structured.TechnicalConstraints?.Any() == true)
+                {
+                    <div class="brief-section">
+                        <h6>🔧 Technical Constraints</h6>
+                        <ul>
+                            @foreach (var t in structured.TechnicalConstraints)
+                            {
+                                <li>@t</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                <!-- Timeline & Budget -->
+                @if (!string.IsNullOrWhiteSpace(structured.Timeline) || !string.IsNullOrWhiteSpace(structured.Budget))
+                {
+                    <div class="brief-section">
+                        <div class="row">
+                            @if (!string.IsNullOrWhiteSpace(structured.Timeline))
+                            {
+                                <div class="col-sm-6">
+                                    <h6>📅 Timeline</h6>
+                                    <p>@structured.Timeline</p>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(structured.Budget))
+                            {
+                                <div class="col-sm-6">
+                                    <h6>💰 Budget</h6>
+                                    <p>@structured.Budget</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(Model.StructuredJson))
+            {
+                <!-- Fallback: raw JSON -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">Raw Structured Data</div>
+                    <div class="card-body">
+                        <pre class="mb-0" style="font-size:0.8rem; white-space:pre-wrap;">@Model.StructuredJson</pre>
+                    </div>
+                </div>
+            }
+
+            <!-- Client Responses -->
+            @if (clientResponses.Any())
+            {
+                <div class="brief-section success mt-3">
+                    <h6>💬 Client Responses</h6>
+                    <ul class="list-unstyled mb-0">
+                        @foreach (var r in clientResponses)
+                        {
+                            <li class="py-1 border-bottom">
+                                <span class="fw-semibold text-capitalize">@r.FieldName:</span>
+                                <span class="ms-2">@r.ResponseText</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+
+        <!-- Right column: Sidebar -->
+        <div class="col-lg-4">
+
+            <!-- Share Link Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">🔗 Client Share Link</div>
+                <div class="card-body">
+                    @if (shareUrl != null)
+                    {
+                        <p class="small text-muted mb-2">Send this link to your client. Expires <strong>@shareLink!.ExpiresAt.ToString("MMM d, yyyy")</strong>.</p>
+                        <div class="share-link-box mb-3" id="shareLinkText">@shareUrl</div>
+                        <button class="btn btn-primary w-100" onclick="copyShareLink()" id="copyBtnSidebar">
+                            📋 Copy Link
+                        </button>
+                        <a href="@shareUrl" target="_blank" class="btn btn-outline-secondary w-100 mt-2 btn-sm">
+                            Preview as Client ↗
+                        </a>
+                    }
+                    else
+                    {
+                        <p class="text-muted small">Share link not available yet.</p>
+                    }
+                </div>
+            </div>
+
+            <!-- Missing Fields Card -->
+            @if (missingFields.Any())
+            {
+                <div class="card mb-3 border-warning">
+                    <div class="card-header bg-warning text-dark">⚠️ Missing Information</div>
+                    <div class="card-body">
+                        <p class="small text-muted mb-2">The AI flagged these fields as missing or vague. The client can fill them in via the share link.</p>
+                        <ul class="list-unstyled mb-0">
+                            @foreach (var field in missingFields)
+                            {
+                                <li class="py-1 border-bottom small">
+                                    <span class="text-warning me-1">●</span>
+                                    <span class="text-capitalize">@field.Replace("_", " ")</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
+
+            <!-- Status Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">📊 Status</div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="status-badge @statusClass">@Model.Status</span>
+                    </div>
+                    <div class="mt-3 small text-muted">
+                        <div><strong>Brief ID:</strong> @Model.Id.ToString().Substring(0, 8)...</div>
+                        <div><strong>Intake ID:</strong> @Model.IntakeSessionId.ToString().Substring(0, 8)...</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </div>
+
+<!-- Hidden full share URL for clipboard -->
+<input type="hidden" id="shareUrlHidden" value="@shareUrl" />
+
+@section Scripts {
+<script>
+    function copyShareLink() {
+        const url = document.getElementById('shareUrlHidden').value;
+        if (!url) return;
+        navigator.clipboard.writeText(url).then(() => {
+            const btns = [document.getElementById('copyBtn'), document.getElementById('copyBtnSidebar')];
+            btns.forEach(b => { if (b) { b.textContent = '✅ Copied!'; setTimeout(() => b.textContent = b.id === 'copyBtn' ? '📋 Copy Share Link' : '📋 Copy Link', 2000); } });
+        });
+    }
+</script>
+}

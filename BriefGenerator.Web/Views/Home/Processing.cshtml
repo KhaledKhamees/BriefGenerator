@@ -1,0 +1,101 @@
+@{
+    ViewData["Title"] = "Processing...";
+    var intakeId = ViewBag.IntakeId as string;
+}
+
+<div class="container processing-hero">
+    <div id="processingState">
+        <div class="spinner-border text-primary mb-4" style="width:3.5rem;height:3.5rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h3 class="fw-bold">Generating your brief...</h3>
+        <p class="text-muted mt-2" id="statusMessage">The AI is extracting and structuring your content. This usually takes 15–30 seconds.</p>
+
+        <div class="progress mt-4" style="width:320px; height:6px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="progressBar" style="width: 20%"></div>
+        </div>
+
+        <div class="mt-4">
+            <span class="status-badge status-processing" id="statusBadge">⏳ processing</span>
+        </div>
+    </div>
+
+    <div id="doneState" class="d-none text-center">
+        <div style="font-size:4rem">✅</div>
+        <h3 class="fw-bold mt-3">Brief Ready!</h3>
+        <p class="text-muted">Your structured brief has been generated.</p>
+        <a id="viewBriefBtn" href="#" class="btn btn-primary btn-lg mt-2 px-5">View Brief →</a>
+    </div>
+
+    <div id="failedState" class="d-none text-center">
+        <div style="font-size:4rem">❌</div>
+        <h3 class="fw-bold mt-3">Processing Failed</h3>
+        <p class="text-muted">Something went wrong with the AI pipeline.</p>
+        <a asp-action="Index" class="btn btn-outline-secondary mt-2">Back to Dashboard</a>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    const intakeId = '@intakeId';
+    let pollCount = 0;
+    const maxPolls = 60; // 2 minutes max
+
+    const statusMessages = {
+        'uploaded':          'Files uploaded. Starting AI processing...',
+        'processing':        'AI is extracting and structuring your content...',
+        'awaiting_client':   'Brief generated! Preparing your view...',
+        'client_responded':  'Brief generated! Preparing your view...',
+        'confirmed':         'Brief confirmed! Preparing your view...',
+        'failed':            'Processing failed.'
+    };
+
+    const progressMap = {
+        'uploaded': 15,
+        'processing': 50,
+        'awaiting_client': 95,
+        'confirmed': 100,
+        'failed': 100
+    };
+
+    function poll() {
+        fetch(`/Home/IntakeStatus/${intakeId}`)
+            .then(r => r.json())
+            .then(data => {
+                const status = data.status;
+                const msg = statusMessages[status] || 'Processing...';
+                const progress = progressMap[status] || Math.min(20 + pollCount * 3, 85);
+
+                document.getElementById('statusMessage').textContent = msg;
+                document.getElementById('progressBar').style.width = progress + '%';
+                document.getElementById('statusBadge').textContent = '⏳ ' + status;
+
+                if (status === 'awaiting_client' || status === 'client_responded' || status === 'confirmed') {
+                    // Done — redirect to brief details
+                    document.getElementById('processingState').classList.add('d-none');
+                    document.getElementById('doneState').classList.remove('d-none');
+                    if (data.briefId) {
+                        document.getElementById('viewBriefBtn').href = `/Home/Details/${data.briefId}`;
+                    }
+                } else if (status === 'failed') {
+                    document.getElementById('processingState').classList.add('d-none');
+                    document.getElementById('failedState').classList.remove('d-none');
+                } else {
+                    pollCount++;
+                    if (pollCount < maxPolls) {
+                        setTimeout(poll, 2000);
+                    } else {
+                        document.getElementById('statusMessage').textContent = 'Taking longer than expected. Check the dashboard in a moment.';
+                    }
+                }
+            })
+            .catch(() => {
+                pollCount++;
+                if (pollCount < maxPolls) setTimeout(poll, 3000);
+            });
+    }
+
+    // Start polling after a short delay
+    setTimeout(poll, 1500);
+</script>
+}

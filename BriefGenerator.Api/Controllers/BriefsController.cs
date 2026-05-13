@@ -7,8 +7,7 @@ using System.Security.Claims;
 
 namespace BriefGenerator.Api.Controllers
 {
-    //[Authorize]
-    [AllowAnonymous] // DEV HACK: Bypass Auth
+    [Authorize]
     [ApiController]
     [Route("api/briefs")]
     public class BriefsController : ControllerBase
@@ -20,45 +19,67 @@ namespace BriefGenerator.Api.Controllers
             _context = context;
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────
+
+        /// <summary>Returns the authenticated user's ID, or null if the claim is missing.</summary>
+        private Guid? CurrentUserId()
+        {
+            var str = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(str, out var id) ? id : null;
+        }
+
+        /// <summary>
+        /// Returns true if the brief with the given ID belongs to the current user.
+        /// Avoids loading the full entity when we only need the ownership check.
+        /// </summary>
+        private async Task<bool> BriefBelongsToCurrentUserAsync(Guid briefId, Guid userId)
+        {
+            return await _context.Briefs
+                .AnyAsync(b => b.Id == briefId && b.intakeSession.UserId == userId);
+        }
+
+        // ── GET /api/briefs ───────────────────────────────────────────────
         [HttpGet]
         public async Task<IActionResult> GetEmployeeBriefs()
         {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            
-            // DEV HACK: Fallback user ID
-            if (!Guid.TryParse(userIdStr, out var userId))
-            {
-                userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-                await EnsureDummyUserExistsAsync(userId);
-            }
-
-            var intakeIds = await _context.IntakeSessions
-                .Where(i => i.UserId == userId)
-                .Select(i => i.Id)
-                .ToListAsync();
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
 
             var briefs = await _context.Briefs
                 .Include(b => b.intakeSession)
-                .Where(b => intakeIds.Contains(b.IntakeSessionId))
+                .Where(b => b.intakeSession.UserId == userId)
                 .OrderByDescending(b => b.intakeSession.CreatedAt)
                 .ToListAsync();
 
             return Ok(briefs);
         }
 
+        // ── GET /api/briefs/{id} ──────────────────────────────────────────
         [HttpGet("{id}")]
         public async Task<IActionResult> GetBrief(Guid id)
         {
-            var brief = await _context.Briefs.FindAsync(id);
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
+
+            var brief = await _context.Briefs
+                .Include(b => b.intakeSession)
+                .FirstOrDefaultAsync(b => b.Id == id);
+
             if (brief == null) return NotFound();
+            if (brief.intakeSession.UserId != userId) return Forbid();
+
             return Ok(brief);
         }
 
+        // ── GET /api/briefs/{id}/share-link ───────────────────────────────
         [HttpGet("{id}/share-link")]
         public async Task<IActionResult> GetOrCreateShareLink(Guid id)
         {
-            var brief = await _context.Briefs.FindAsync(id);
-            if (brief == null) return NotFound();
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
+
+            if (!await BriefBelongsToCurrentUserAsync(id, userId.Value))
+                return NotFound();   // don't reveal existence to other users
 
             var existing = await _context.ShareLinks
                 .Where(s => s.BriefId == id && s.ExpiresAt > DateTime.UtcNow)
@@ -66,9 +87,7 @@ namespace BriefGenerator.Api.Controllers
                 .FirstOrDefaultAsync();
 
             if (existing != null)
-            {
                 return Ok(new { url = $"/api/public/brief/{existing.Token}", token = existing.Token, expiresAt = existing.ExpiresAt });
-            }
 
             var shareLink = new ShareLink
             {
@@ -84,11 +103,15 @@ namespace BriefGenerator.Api.Controllers
             return Ok(new { url = $"/api/public/brief/{shareLink.Token}", token = shareLink.Token, expiresAt = shareLink.ExpiresAt });
         }
 
+        // ── GET /api/briefs/{id}/responses ────────────────────────────────
         [HttpGet("{id}/responses")]
         public async Task<IActionResult> GetClientResponses(Guid id)
         {
-            var exists = await _context.Briefs.AnyAsync(b => b.Id == id);
-            if (!exists) return NotFound();
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
+
+            if (!await BriefBelongsToCurrentUserAsync(id, userId.Value))
+                return NotFound();
 
             var responses = await _context.ClientResponses
                 .Where(r => r.BriefId == id)
@@ -98,35 +121,28 @@ namespace BriefGenerator.Api.Controllers
             return Ok(responses);
         }
 
+        // ── PATCH /api/briefs/{id} ────────────────────────────────────────
         [HttpPatch("{id}")]
         public async Task<IActionResult> UpdateBrief(Guid id, [FromBody] UpdateBriefRequest request)
         {
-            var brief = await _context.Briefs.FindAsync(id);
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
+
+            var brief = await _context.Briefs
+                .Include(b => b.intakeSession)
+                .FirstOrDefaultAsync(b => b.Id == id);
+
             if (brief == null) return NotFound();
+            if (brief.intakeSession.UserId != userId) return Forbid();
 
             if (request.StructuredJson != null)
                 brief.StructuredJson = request.StructuredJson;
-            
+
             if (request.MarkdownOutput != null)
                 brief.MarkdownOutput = request.MarkdownOutput;
 
             await _context.SaveChangesAsync();
             return Ok(brief);
-        }
-
-        private async Task EnsureDummyUserExistsAsync(Guid userId)
-        {
-            if (!await _context.Users.AnyAsync(u => u.Id == userId))
-            {
-                _context.Users.Add(new User
-                {
-                    Id = userId,
-                    Name = "Dev Dummy",
-                    Email = "dummy@dev.local",
-                    PasswordHash = "dummy"
-                });
-                await _context.SaveChangesAsync();
-            }
         }
     }
 

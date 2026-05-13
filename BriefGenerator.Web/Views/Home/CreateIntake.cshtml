@@ -4,32 +4,97 @@
     ViewData["Title"] = "New Intake";
 }
 
-<div class="container mt-4">
-    <h2>Create New Intake</h2>
-    <div class="card shadow-sm mt-3">
-        <div class="card-body">
-            <form asp-action="CreateIntake" method="post" enctype="multipart/form-data">
-                <div asp-validation-summary="All" class="text-danger"></div>
+<div class="container mt-4" style="max-width: 680px;">
+    <div class="mb-4">
+        <a asp-action="Index" class="text-muted text-decoration-none">← Back to Dashboard</a>
+    </div>
 
-                <div class="mb-3">
-                    <label asp-for="Title" class="form-label">Project Title</label>
-                    <input asp-for="Title" class="form-label form-control" placeholder="Enter project title" />
-                </div>
+    <h2 class="fw-bold mb-1">New Intake</h2>
+    <p class="text-muted mb-4">Upload client materials and notes. The AI will generate a structured brief automatically.</p>
 
-                <div class="mb-3">
-                    <label asp-for="Notes" class="form-label">Notes / Instructions</label>
-                    <textarea asp-for="Notes" class="form-control" rows="4" placeholder="Enter any specific notes..."></textarea>
+    <div class="card">
+        <div class="card-body p-4">
+            <form asp-action="CreateIntake" method="post" enctype="multipart/form-data" id="intakeForm">
+                <div asp-validation-summary="All" class="alert alert-danger mb-3"></div>
+
+                <div class="mb-4">
+                    <label asp-for="Title" class="form-label fw-semibold">Project Title <span class="text-danger">*</span></label>
+                    <input asp-for="Title" class="form-control form-control-lg" placeholder="e.g. E-commerce Website Redesign" required />
                 </div>
 
                 <div class="mb-4">
-                    <label asp-for="Files" class="form-label">Upload Files</label>
-                    <input asp-for="Files" type="file" multiple class="form-control" />
-                    <small class="text-muted">You can select multiple files here.</small>
+                    <label asp-for="Notes" class="form-label fw-semibold">Notes / Client Instructions</label>
+                    <textarea asp-for="Notes" class="form-control" rows="5"
+                        placeholder="Paste any client messages, emails, or notes here. The AI will extract the key information..."></textarea>
+                    <small class="text-muted">You can paste raw client messages — the AI handles the mess.</small>
                 </div>
 
-                <button type="submit" class="btn btn-success">Submit Intake</button>
-                <a asp-action="Index" class="btn btn-secondary ms-2">Cancel</a>
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Upload Files</label>
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-icon">📎</div>
+                        <p class="mt-2 mb-1 fw-semibold">Drag & drop files here, or click to browse</p>
+                        <small class="text-muted">Supports: PDF, images (PNG/JPG), audio (MP3/WAV/M4A), video (MP4), text files</small>
+                        <input asp-for="Files" type="file" multiple id="fileInput"
+                               accept=".pdf,.png,.jpg,.jpeg,.webp,.mp3,.wav,.m4a,.ogg,.mp4,.txt,.md,.csv,.json"
+                               class="d-none" />
+                    </div>
+                    <div id="fileList" class="mt-2"></div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg px-5" id="submitBtn">
+                        <span id="submitText">Generate Brief</span>
+                        <span id="submitSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                    </button>
+                    <a asp-action="Index" class="btn btn-outline-secondary btn-lg">Cancel</a>
+                </div>
             </form>
         </div>
     </div>
 </div>
+
+@section Scripts {
+<script>
+    // Upload zone click
+    const zone = document.getElementById('uploadZone');
+    const input = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+
+    zone.addEventListener('click', () => input.click());
+
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const dt = new DataTransfer();
+        Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+        input.files = dt.files;
+        renderFileList(dt.files);
+    });
+
+    input.addEventListener('change', () => renderFileList(input.files));
+
+    function renderFileList(files) {
+        fileList.innerHTML = '';
+        if (!files || files.length === 0) return;
+        const ul = document.createElement('ul');
+        ul.className = 'list-unstyled mb-0';
+        Array.from(files).forEach(f => {
+            const li = document.createElement('li');
+            li.className = 'small text-muted py-1 border-bottom';
+            li.innerHTML = `📄 <strong>${f.name}</strong> <span class="ms-2">(${(f.size / 1024).toFixed(1)} KB)</span>`;
+            ul.appendChild(li);
+        });
+        fileList.appendChild(ul);
+    }
+
+    // Show spinner on submit
+    document.getElementById('intakeForm').addEventListener('submit', () => {
+        document.getElementById('submitText').textContent = 'Submitting...';
+        document.getElementById('submitSpinner').classList.remove('d-none');
+        document.getElementById('submitBtn').disabled = true;
+    });
+</script>
+}

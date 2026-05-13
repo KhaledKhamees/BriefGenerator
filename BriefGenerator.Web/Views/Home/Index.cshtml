@@ -1,47 +1,95 @@
 ﻿@model List<BriefGenerator.Web.Models.BriefDto>
+@using System.Text.Json
 
 @{
-    ViewData["Title"] = "Briefs";
+    ViewData["Title"] = "Dashboard";
 }
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Generated Briefs</h1>
-        <a asp-action="CreateIntake" class="btn btn-primary">New Intake</a>
+        <div>
+            <h2 class="fw-bold mb-0">Dashboard</h2>
+            <p class="text-muted mb-0">All your generated project briefs</p>
+        </div>
+        <a asp-action="CreateIntake" class="btn btn-primary px-4">
+            + New Intake
+        </a>
     </div>
 
     @if (Model == null || !Model.Any())
     {
-        <div class="alert alert-info">No briefs found. Create a new intake!</div>
+        <div class="card text-center py-5">
+            <div class="card-body">
+                <div style="font-size:3rem">📋</div>
+                <h4 class="mt-3">No briefs yet</h4>
+                <p class="text-muted">Create your first intake to get started.</p>
+                <a asp-action="CreateIntake" class="btn btn-primary mt-2">Create Intake</a>
+            </div>
+        </div>
     }
     else
     {
-        <div class="row">
-            @for (int i = 0; i < Model.Count; i++)
+        <div class="row g-3">
+            @foreach (var brief in Model)
             {
-                var brief = Model[i];
-                <div class="col-md-4 mb-4">
-                    <div class="card shadow-sm h-100 @(i == 0 ? "border-primary" : "")">
+                var title = "Untitled Brief";
+                if (!string.IsNullOrWhiteSpace(brief.StructuredJson))
+                {
+                    try
+                    {
+                        var parsed = JsonSerializer.Deserialize<BriefGenerator.Web.Models.StructuredBriefData>(
+                            brief.StructuredJson,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (!string.IsNullOrWhiteSpace(parsed?.ProjectName))
+                            title = parsed.ProjectName;
+                        else if (brief.IntakeSession?.Title != null)
+                            title = brief.IntakeSession.Title;
+                    }
+                    catch { }
+                }
+                else if (brief.IntakeSession?.Title != null)
+                {
+                    title = brief.IntakeSession.Title;
+                }
+
+                var statusClass = brief.Status switch
+                {
+                    "processing"        => "status-processing",
+                    "awaiting_client"   => "status-awaiting_client",
+                    "client_responded"  => "status-client_responded",
+                    "confirmed"         => "status-confirmed",
+                    "failed"            => "status-failed",
+                    "uploaded"          => "status-uploaded",
+                    _                   => "status-uploaded"
+                };
+
+                var statusIcon = brief.Status switch
+                {
+                    "processing"        => "⏳",
+                    "awaiting_client"   => "📤",
+                    "client_responded"  => "💬",
+                    "confirmed"         => "✅",
+                    "failed"            => "❌",
+                    _                   => "📄"
+                };
+
+                <div class="col-md-6 col-lg-4">
+                    <div class="card h-100">
                         <div class="card-body">
-                            <h5 class="card-title">
-                                Brief @brief.Id.ToString().Substring(0, 8)
-                                @if (i == 0)
-                                {
-                                    <span class="badge bg-primary ms-2">Newest</span>
-                                }
-                            </h5>
-                            <p class="card-text">
-                                Status: <strong>@brief.Status</strong>
-                            </p>
-                            <p class="card-text text-truncate">
-                                @if(!string.IsNullOrEmpty(brief.StructuredJson))
-                                {
-                                    @brief.StructuredJson.Substring(0, Math.Min(brief.StructuredJson.Length, 100))@("...")
-                                }
-                            </p>
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <span class="status-badge @statusClass">@statusIcon @brief.Status</span>
+                                <small class="text-muted">@brief.IntakeSession?.CreatedAt.ToString("MMM d, yyyy")</small>
+                            </div>
+                            <h5 class="brief-card-title mt-2" title="@title">@title</h5>
+                            @if (!string.IsNullOrWhiteSpace(brief.MissingFieldsJson) && brief.MissingFieldsJson != "[]")
+                            {
+                                <small class="text-warning fw-semibold">⚠ Missing fields detected</small>
+                            }
                         </div>
-                        <div class="card-footer bg-white border-top-0">
-                            <a asp-action="Details" asp-route-id="@brief.Id" class="btn btn-outline-secondary btn-sm w-100">View Details</a>
+                        <div class="card-footer bg-white border-top-0 pt-0">
+                            <a asp-action="Details" asp-route-id="@brief.Id" class="btn btn-outline-primary btn-sm w-100">
+                                View Brief →
+                            </a>
                         </div>
                     </div>
                 </div>

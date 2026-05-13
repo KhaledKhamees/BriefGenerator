@@ -5,12 +5,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using UglyToad.PdfPig;
 
 namespace BriefGenerator.Api.Controllers
 {
-    // [Authorize] <-- Commented out for dev hack
-    [AllowAnonymous]
+    [Authorize]
     [ApiController]
     [Route("api/intake")]
     public class IntakeController : ControllerBase
@@ -24,22 +22,23 @@ namespace BriefGenerator.Api.Controllers
             _scopeFactory = scopeFactory;
         }
 
+        private Guid? CurrentUserId()
+        {
+            var str = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(str, out var id) ? id : null;
+        }
+
+        // ── POST /api/intake/create ───────────────────────────────────────
         [HttpPost("create")]
         public async Task<IActionResult> Create([FromForm] CreateIntakeRequest request)
         {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            
-            // DEV HACK: Fallback user ID
-            if (!Guid.TryParse(userIdStr, out var userId))
-            {
-                userId = Guid.Parse("00000000-0000-0000-0000-000000000001");
-                await EnsureDummyUserExistsAsync(userId);
-            }
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
 
             var intakeSession = new IntakeSession
             {
                 Id = Guid.NewGuid(),
-                UserId = userId,
+                UserId = userId.Value,
                 Title = request.Title ?? "New Intake",
                 Status = "uploaded",
                 CreatedAt = DateTime.UtcNow
@@ -53,7 +52,6 @@ namespace BriefGenerator.Api.Controllers
 
             var uploadedFiles = new List<UploadedFile>();
 
-            // Handle Files
             if (request.Files != null)
             {
                 foreach (var file in request.Files)
@@ -63,10 +61,8 @@ namespace BriefGenerator.Api.Controllers
                         var fileName = $"{Guid.NewGuid()}_{file.FileName}";
                         var filePath = Path.Combine(uploadPath, fileName);
 
-                        using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
-                            await file.CopyToAsync(stream);
-                        }
+                        using var stream = new FileStream(filePath, FileMode.Create);
+                        await file.CopyToAsync(stream);
 
                         uploadedFiles.Add(new UploadedFile
                         {
@@ -80,7 +76,6 @@ namespace BriefGenerator.Api.Controllers
                 }
             }
 
-            // Treat plain text notes as a file
             if (!string.IsNullOrWhiteSpace(request.Notes))
             {
                 var notesFileName = $"{Guid.NewGuid()}_notes.txt";
@@ -100,35 +95,32 @@ namespace BriefGenerator.Api.Controllers
             _context.UploadedFiles.AddRange(uploadedFiles);
             await _context.SaveChangesAsync();
 
-            // Trigger AI Pipeline in the background
+            // Fire AI pipeline in background
             Task.Run(async () =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var aiService = scope.ServiceProvider.GetRequiredService<IAiProcessingService>();
-                try
-                {
-                    await aiService.ProcessIntakeAsync(intakeSession.Id);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"AI Processing Error: {ex.Message}");
-                }
+                try { await aiService.ProcessIntakeAsync(intakeSession.Id); }
+                catch (Exception ex) { Console.WriteLine($"AI Processing Error: {ex.Message}"); }
             });
 
             return Ok(new { intakeId = intakeSession.Id, status = "processing" });
         }
 
+        // ── GET /api/intake/{id} ──────────────────────────────────────────
         [HttpGet("{id}")]
         public async Task<IActionResult> GetIntake(Guid id)
         {
+            var userId = CurrentUserId();
+            if (userId == null) return Unauthorized();
+
             var intake = await _context.IntakeSessions.FindAsync(id);
             if (intake == null) return NotFound();
+            if (intake.UserId != userId) return Forbid();
 
             var brief = await _context.Briefs.FirstOrDefaultAsync(b => b.IntakeSessionId == id);
             if (brief == null)
-            {
                 return Ok(new { id = intake.Id, status = intake.Status, brief = (Brief?)null, shareToken = (string?)null, shareUrl = (string?)null });
-            }
 
             var shareLink = await _context.ShareLinks
                 .Where(s => s.BriefId == brief.Id && s.ExpiresAt > DateTime.UtcNow)
@@ -140,29 +132,13 @@ namespace BriefGenerator.Api.Controllers
 
             return Ok(new { id = intake.Id, status = intake.Status, brief, shareToken, shareUrl });
         }
-
-        // DEV HACK: Helper to auto-create the dummy user
-        private async Task EnsureDummyUserExistsAsync(Guid userId)
-        {
-            if (!await _context.Users.AnyAsync(u => u.Id == userId))
-            {
-                _context.Users.Add(new User
-                {
-                    Id = userId,
-                    Name = "Dev Dummy",
-                    Email = "dummy@dev.local",
-                    PasswordHash = "dummy"
-                });
-                await _context.SaveChangesAsync();
-            }
-        }
     }
 
     public class CreateIntakeRequest
     {
         [FromForm(Name = "Title")]
         public string? Title { get; set; }
-        
+
         [FromForm(Name = "Notes")]
         public string? Notes { get; set; }
 

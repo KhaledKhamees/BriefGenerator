@@ -1,0 +1,82 @@
+@model BriefGenerator.Web.Models.LoginViewModel
+
+@{
+    ViewData["Title"] = "Sign In";
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign In — BriefGen</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { background: #f4f6f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .auth-card { width: 100%; max-width: 420px; }
+        .auth-logo { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px; }
+        .auth-logo span { color: #0d6efd; }
+        .divider { display: flex; align-items: center; gap: 0.75rem; color: #adb5bd; font-size: 0.82rem; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #dee2e6; }
+    </style>
+</head>
+<body>
+    <div class="auth-card px-3">
+        <div class="text-center mb-4">
+            <div class="auth-logo"><span>Brief</span>Gen</div>
+            <p class="text-muted mt-1 small">AI-Powered Project Briefs</p>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h4 class="fw-bold mb-1">Welcome back</h4>
+                <p class="text-muted small mb-4">Sign in to your account to continue.</p>
+
+                <form asp-action="Login" asp-controller="Account" method="post">
+                    @if (ViewBag.ReturnUrl != null)
+                    {
+                        <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+                    }
+
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small"></div>
+
+                    <div class="mb-3">
+                        <label asp-for="Email" class="form-label fw-semibold small">Email address</label>
+                        <input asp-for="Email" class="form-control" placeholder="you@company.com" autocomplete="email" />
+                        <span asp-validation-for="Email" class="text-danger small"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label asp-for="Password" class="form-label fw-semibold small mb-0">Password</label>
+                        </div>
+                        <input asp-for="Password" class="form-control mt-1" placeholder="••••••••" autocomplete="current-password" />
+                        <span asp-validation-for="Password" class="text-danger small"></span>
+                    </div>
+
+                    <div class="mb-4 form-check">
+                        <input asp-for="RememberMe" class="form-check-input" type="checkbox" />
+                        <label asp-for="RememberMe" class="form-check-label small">Keep me signed in</label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 fw-semibold">Sign In</button>
+                </form>
+
+                <div class="divider my-4">or</div>
+
+                <p class="text-center small mb-0">
+                    Don't have an account?
+                    <a asp-action="Register" asp-controller="Account" class="fw-semibold text-decoration-none">Create one</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/jquery-validation/dist/jquery.validate.min.js"></script>
+    <script src="~/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"></script>
+</body>
+</html>
