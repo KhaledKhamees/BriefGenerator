@@ -124,8 +124,21 @@ namespace BriefGenerator.Api.Controllers
             var intake = await _context.IntakeSessions.FindAsync(id);
             if (intake == null) return NotFound();
 
-            var brief = _context.Briefs.FirstOrDefault(b => b.IntakeSessionId == id);
-            return Ok(new { id = intake.Id, status = intake.Status, brief });
+            var brief = await _context.Briefs.FirstOrDefaultAsync(b => b.IntakeSessionId == id);
+            if (brief == null)
+            {
+                return Ok(new { id = intake.Id, status = intake.Status, brief = (Brief?)null, shareToken = (string?)null, shareUrl = (string?)null });
+            }
+
+            var shareLink = await _context.ShareLinks
+                .Where(s => s.BriefId == brief.Id && s.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(s => s.ExpiresAt)
+                .FirstOrDefaultAsync();
+
+            var shareToken = shareLink?.Token;
+            var shareUrl = shareToken is null ? null : $"/api/public/brief/{shareToken}";
+
+            return Ok(new { id = intake.Id, status = intake.Status, brief, shareToken, shareUrl });
         }
 
         // DEV HACK: Helper to auto-create the dummy user

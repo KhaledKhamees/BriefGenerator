@@ -23,6 +23,16 @@ namespace BriefGenerator.Api.Controllers
             var brief = await _context.Briefs.FindAsync(briefId);
             if (brief == null) return NotFound("Brief not found.");
 
+            var existing = await _context.ShareLinks
+                .Where(s => s.BriefId == briefId && s.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(s => s.ExpiresAt)
+                .FirstOrDefaultAsync();
+
+            if (existing != null)
+            {
+                return Ok(new { url = $"/api/public/brief/{existing.Token}", token = existing.Token, expiresAt = existing.ExpiresAt });
+            }
+
             var shareLink = new ShareLink
             {
                 Id = Guid.NewGuid(),
@@ -34,7 +44,7 @@ namespace BriefGenerator.Api.Controllers
             _context.ShareLinks.Add(shareLink);
             await _context.SaveChangesAsync();
 
-            return Ok(new { url = $"/api/public/brief/{shareLink.Token}", token = shareLink.Token });
+            return Ok(new { url = $"/api/public/brief/{shareLink.Token}", token = shareLink.Token, expiresAt = shareLink.ExpiresAt });
         }
 
         [HttpGet("{token}")]
@@ -50,7 +60,9 @@ namespace BriefGenerator.Api.Controllers
         [HttpPost("{token}/answers")]
         public async Task<IActionResult> SubmitAnswers(string token, [FromBody] SubmitAnswersRequest request)
         {
-            var shareLink = await _context.ShareLinks.FirstOrDefaultAsync(s => s.Token == token);
+            var shareLink = await _context.ShareLinks
+                .Include(s => s.Brief)
+                .FirstOrDefaultAsync(s => s.Token == token);
             if (shareLink == null || shareLink.ExpiresAt < DateTime.UtcNow)
                 return NotFound(new { error = "Invalid or expired link" });
 
@@ -63,6 +75,18 @@ namespace BriefGenerator.Api.Controllers
             }).ToList();
 
             _context.ClientResponses.AddRange(responses);
+
+            // Mark brief/intake as having client feedback (employee should review/merge).
+            if (shareLink.Brief != null)
+            {
+                shareLink.Brief.Status = "client_responded";
+                var intake = await _context.IntakeSessions.FindAsync(shareLink.Brief.IntakeSessionId);
+                if (intake != null)
+                {
+                    intake.Status = "client_responded";
+                }
+            }
+
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Answers submitted successfully." });

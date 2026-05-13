@@ -1,0 +1,51 @@
+﻿@model List<BriefGenerator.Web.Models.BriefDto>
+
+@{
+    ViewData["Title"] = "Briefs";
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Generated Briefs</h1>
+        <a asp-action="CreateIntake" class="btn btn-primary">New Intake</a>
+    </div>
+
+    @if (Model == null || !Model.Any())
+    {
+        <div class="alert alert-info">No briefs found. Create a new intake!</div>
+    }
+    else
+    {
+        <div class="row">
+            @for (int i = 0; i < Model.Count; i++)
+            {
+                var brief = Model[i];
+                <div class="col-md-4 mb-4">
+                    <div class="card shadow-sm h-100 @(i == 0 ? "border-primary" : "")">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                Brief @brief.Id.ToString().Substring(0, 8)
+                                @if (i == 0)
+                                {
+                                    <span class="badge bg-primary ms-2">Newest</span>
+                                }
+                            </h5>
+                            <p class="card-text">
+                                Status: <strong>@brief.Status</strong>
+                            </p>
+                            <p class="card-text text-truncate">
+                                @if(!string.IsNullOrEmpty(brief.StructuredJson))
+                                {
+                                    @brief.StructuredJson.Substring(0, Math.Min(brief.StructuredJson.Length, 100))@("...")
+                                }
+                            </p>
+                        </div>
+                        <div class="card-footer bg-white border-top-0">
+                            <a asp-action="Details" asp-route-id="@brief.Id" class="btn btn-outline-secondary btn-sm w-100">View Details</a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>

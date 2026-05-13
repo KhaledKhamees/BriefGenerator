@@ -38,7 +38,9 @@ namespace BriefGenerator.Api.Controllers
                 .ToListAsync();
 
             var briefs = await _context.Briefs
+                .Include(b => b.intakeSession)
                 .Where(b => intakeIds.Contains(b.IntakeSessionId))
+                .OrderByDescending(b => b.intakeSession.CreatedAt)
                 .ToListAsync();
 
             return Ok(briefs);
@@ -50,6 +52,50 @@ namespace BriefGenerator.Api.Controllers
             var brief = await _context.Briefs.FindAsync(id);
             if (brief == null) return NotFound();
             return Ok(brief);
+        }
+
+        [HttpGet("{id}/share-link")]
+        public async Task<IActionResult> GetOrCreateShareLink(Guid id)
+        {
+            var brief = await _context.Briefs.FindAsync(id);
+            if (brief == null) return NotFound();
+
+            var existing = await _context.ShareLinks
+                .Where(s => s.BriefId == id && s.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(s => s.ExpiresAt)
+                .FirstOrDefaultAsync();
+
+            if (existing != null)
+            {
+                return Ok(new { url = $"/api/public/brief/{existing.Token}", token = existing.Token, expiresAt = existing.ExpiresAt });
+            }
+
+            var shareLink = new ShareLink
+            {
+                Id = Guid.NewGuid(),
+                BriefId = id,
+                Token = Guid.NewGuid().ToString("N"),
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+
+            _context.ShareLinks.Add(shareLink);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { url = $"/api/public/brief/{shareLink.Token}", token = shareLink.Token, expiresAt = shareLink.ExpiresAt });
+        }
+
+        [HttpGet("{id}/responses")]
+        public async Task<IActionResult> GetClientResponses(Guid id)
+        {
+            var exists = await _context.Briefs.AnyAsync(b => b.Id == id);
+            if (!exists) return NotFound();
+
+            var responses = await _context.ClientResponses
+                .Where(r => r.BriefId == id)
+                .OrderByDescending(r => r.Id)
+                .ToListAsync();
+
+            return Ok(responses);
         }
 
         [HttpPatch("{id}")]

@@ -1,0 +1,35 @@
+@model BriefGenerator.Web.Models.IntakeViewModel
+
+@{
+    ViewData["Title"] = "New Intake";
+}
+
+<div class="container mt-4">
+    <h2>Create New Intake</h2>
+    <div class="card shadow-sm mt-3">
+        <div class="card-body">
+            <form asp-action="CreateIntake" method="post" enctype="multipart/form-data">
+                <div asp-validation-summary="All" class="text-danger"></div>
+
+                <div class="mb-3">
+                    <label asp-for="Title" class="form-label">Project Title</label>
+                    <input asp-for="Title" class="form-label form-control" placeholder="Enter project title" />
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Notes" class="form-label">Notes / Instructions</label>
+                    <textarea asp-for="Notes" class="form-control" rows="4" placeholder="Enter any specific notes..."></textarea>
+                </div>
+
+                <div class="mb-4">
+                    <label asp-for="Files" class="form-label">Upload Files</label>
+                    <input asp-for="Files" type="file" multiple class="form-control" />
+                    <small class="text-muted">You can select multiple files here.</small>
+                </div>
+
+                <button type="submit" class="btn btn-success">Submit Intake</button>
+                <a asp-action="Index" class="btn btn-secondary ms-2">Cancel</a>
+            </form>
+        </div>
+    </div>
+</div>
