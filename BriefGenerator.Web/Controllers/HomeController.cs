@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using BriefGenerator.Web.Models;
+using QuestPDF.Fluent;
 
 namespace BriefGenerator.Web.Controllers;
 
@@ -165,6 +166,179 @@ public class HomeController : Controller
         });
     }
 
+    // GET: /Home/Edit/{id}
+    [HttpGet]
+    public async Task<IActionResult> Edit(Guid id)
+    {
+        var client = _clientFactory.CreateClient("ApiClient");
+        var response = await client.GetAsync($"api/briefs/{id}");
+        if (!response.IsSuccessStatusCode) return NotFound();
+
+        var brief = await response.Content.ReadFromJsonAsync<BriefDto>(
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (brief == null) return NotFound();
+
+        StructuredBriefData? structured = null;
+        if (!string.IsNullOrWhiteSpace(brief.StructuredJson))
+        {
+            try
+            {
+                structured = JsonSerializer.Deserialize<StructuredBriefData>(
+                    brief.StructuredJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { }
+        }
+
+        var vm = new EditBriefViewModel
+        {
+            Id = brief.Id,
+            ProjectName = structured?.ProjectName,
+            ClientName = structured?.ClientName,
+            BusinessGoal = structured?.BusinessGoal,
+            Timeline = structured?.Timeline,
+            Budget = structured?.Budget,
+            TargetUsers = structured?.TargetUsers != null ? string.Join("\n", structured.TargetUsers) : null,
+            Features = structured?.Features != null ? string.Join("\n", structured.Features) : null,
+            Platforms = structured?.Platforms != null ? string.Join("\n", structured.Platforms) : null,
+            DesignRequirements = structured?.DesignRequirements != null ? string.Join("\n", structured.DesignRequirements) : null,
+            TechnicalConstraints = structured?.TechnicalConstraints != null ? string.Join("\n", structured.TechnicalConstraints) : null,
+            MarkdownOutput = brief.MarkdownOutput,
+            OriginalStructuredJson = brief.StructuredJson
+        };
+
+        return View(vm);
+    }
+
+    // POST: /Home/Edit/{id}
+    [HttpPost]
+    public async Task<IActionResult> Edit(Guid id, EditBriefViewModel vm)
+    {
+        if (!ModelState.IsValid) return View(vm);
+
+        // Rebuild the structured JSON from the form fields
+        StructuredBriefData? original = null;
+        if (!string.IsNullOrWhiteSpace(vm.OriginalStructuredJson))
+        {
+            try
+            {
+                original = JsonSerializer.Deserialize<StructuredBriefData>(
+                    vm.OriginalStructuredJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { }
+        }
+
+        var updated = new
+        {
+            project_name = vm.ProjectName,
+            client_name = vm.ClientName,
+            business_goal = vm.BusinessGoal,
+            timeline = vm.Timeline,
+            budget = vm.Budget,
+            target_users = SplitLines(vm.TargetUsers),
+            features = SplitLines(vm.Features),
+            platforms = SplitLines(vm.Platforms),
+            design_requirements = SplitLines(vm.DesignRequirements),
+            technical_constraints = SplitLines(vm.TechnicalConstraints),
+            missing_information = original?.MissingInformationRaw
+        };
+
+        var updatedJson = JsonSerializer.Serialize(updated);
+
+        var client = _clientFactory.CreateClient("ApiClient");
+        var payload = new { structuredJson = updatedJson, markdownOutput = vm.MarkdownOutput };
+        var response = await client.PatchAsJsonAsync($"api/briefs/{id}", payload);
+
+        if (response.IsSuccessStatusCode)
+        {
+            TempData["Success"] = "Brief updated successfully.";
+            return RedirectToAction("Details", new { id });
+        }
+
+        TempData["Error"] = "Failed to update the brief. Please try again.";
+        return View(vm);
+    }
+
+    // POST: /Home/Delete/{id}
+    [HttpPost]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var client = _clientFactory.CreateClient("ApiClient");
+        var response = await client.DeleteAsync($"api/briefs/{id}");
+
+        if (response.IsSuccessStatusCode)
+            TempData["Success"] = "Brief deleted successfully.";
+        else
+            TempData["Error"] = "Failed to delete the brief.";
+
+        return RedirectToAction("Index");
+    }
+
+    // POST: /Home/DeleteAll
+    [HttpPost]
+    public async Task<IActionResult> DeleteAll()
+    {
+        var client = _clientFactory.CreateClient("ApiClient");
+        var response = await client.DeleteAsync("api/briefs");
+
+        if (response.IsSuccessStatusCode)
+            TempData["Success"] = "All briefs deleted successfully.";
+        else
+            TempData["Error"] = "Failed to delete all briefs.";
+
+        return RedirectToAction("Index");
+    }
+
+    // GET: /Home/DownloadPdf/{id}
+    [HttpGet]
+    public async Task<IActionResult> DownloadPdf(Guid id)
+    {
+        var client = _clientFactory.CreateClient("ApiClient");
+
+        var briefResponse = await client.GetAsync($"api/briefs/{id}");
+        if (!briefResponse.IsSuccessStatusCode) return NotFound();
+
+        var brief = await briefResponse.Content.ReadFromJsonAsync<BriefDto>(
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (brief == null) return NotFound();
+
+        // Only confirmed briefs can be downloaded
+        if (!string.Equals(brief.Status, "confirmed", StringComparison.OrdinalIgnoreCase))
+        {
+            TempData["Error"] = "Only confirmed briefs can be downloaded as PDF.";
+            return RedirectToAction("Details", new { id });
+        }
+
+        StructuredBriefData? structured = null;
+        if (!string.IsNullOrWhiteSpace(brief.StructuredJson))
+        {
+            try
+            {
+                structured = JsonSerializer.Deserialize<StructuredBriefData>(
+                    brief.StructuredJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { }
+        }
+
+        structured ??= new StructuredBriefData();
+
+        List<ClientResponseDto> clientResponses = new();
+        var responsesResp = await client.GetAsync($"api/briefs/{id}/responses");
+        if (responsesResp.IsSuccessStatusCode)
+        {
+            clientResponses = await responsesResp.Content.ReadFromJsonAsync<List<ClientResponseDto>>(
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        }
+
+        var document = new BriefGenerator.Web.Services.BriefPdfDocument(brief, structured, clientResponses);
+        var pdfBytes = document.GeneratePdf();
+
+        var fileName = $"brief-{(structured.ProjectName ?? id.ToString()).ToLower().Replace(" ", "-")}.pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
+
     public IActionResult Privacy() => View();
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
@@ -172,6 +346,11 @@ public class HomeController : Controller
         View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
 
     // ── Shared helper ─────────────────────────────────────────────────────
+    private static List<string> SplitLines(string? input) =>
+        string.IsNullOrWhiteSpace(input)
+            ? new List<string>()
+            : input.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
     /// <summary>
     /// Parses MissingFieldsJson which Gemini returns as either:
     ///   ["budget", "timeline"]

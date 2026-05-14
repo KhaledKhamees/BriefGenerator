@@ -115,6 +115,53 @@ namespace BriefGenerator.Api.Controllers
             return Ok(brief);
         }
 
+        // DELETE /api/briefs/{id}
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteBrief(Guid id)
+        {
+            var brief = await _context.Briefs.FindAsync(id);
+            if (brief == null) return NotFound();
+
+            // Remove related share links and client responses first
+            var shareLinks = _context.ShareLinks.Where(s => s.BriefId == id);
+            _context.ShareLinks.RemoveRange(shareLinks);
+
+            var clientResponses = _context.ClientResponses.Where(r => r.BriefId == id);
+            _context.ClientResponses.RemoveRange(clientResponses);
+
+            _context.Briefs.Remove(brief);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        // DELETE /api/briefs
+        [HttpDelete]
+        public async Task<IActionResult> DeleteAllBriefs()
+        {
+            var userId = await GetUserIdAsync();
+
+            var briefs = await _context.Briefs
+                .Include(b => b.intakeSession)
+                .Where(b => b.intakeSession.UserId == userId)
+                .ToListAsync();
+
+            if (!briefs.Any()) return NoContent();
+
+            var briefIds = briefs.Select(b => b.Id).ToList();
+
+            var shareLinks = _context.ShareLinks.Where(s => briefIds.Contains(s.BriefId));
+            _context.ShareLinks.RemoveRange(shareLinks);
+
+            var clientResponses = _context.ClientResponses.Where(r => briefIds.Contains(r.BriefId));
+            _context.ClientResponses.RemoveRange(clientResponses);
+
+            _context.Briefs.RemoveRange(briefs);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
         private async Task EnsureDevUserAsync()
         {
             if (!await _context.Users.AnyAsync(u => u.Id == DevUserId))

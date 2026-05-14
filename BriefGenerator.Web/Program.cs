@@ -1,4 +1,9 @@
+using QuestPDF.Infrastructure;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// QuestPDF community licence (free for open-source / small projects)
+QuestPDF.Settings.License = LicenseType.Community;
 
 builder.Services.AddControllersWithViews();
 

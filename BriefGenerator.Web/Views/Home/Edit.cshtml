@@ -1,0 +1,85 @@
+@model BriefGenerator.Web.Models.EditBriefViewModel
+
+@{
+    ViewData["Title"] = "Edit Brief";
+}
+
+<div class="container mt-4" style="max-width: 800px;">
+    <a asp-action="Details" asp-route-id="@Model.Id" class="text-muted text-decoration-none small">← Back to Brief</a>
+    <h2 class="fw-bold mt-2 mb-4">Edit Brief</h2>
+
+    <form asp-action="Edit" asp-route-id="@Model.Id" method="post">
+        <input type="hidden" asp-for="Id" />
+        <input type="hidden" asp-for="OriginalStructuredJson" />
+
+        <div class="card mb-3">
+            <div class="card-header bg-light fw-semibold">Project Info</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label asp-for="ProjectName" class="form-label">Project Name</label>
+                    <input asp-for="ProjectName" class="form-control" />
+                </div>
+                <div class="mb-3">
+                    <label asp-for="ClientName" class="form-label">Client Name</label>
+                    <input asp-for="ClientName" class="form-control" />
+                </div>
+                <div class="mb-3">
+                    <label asp-for="BusinessGoal" class="form-label">Business Goal</label>
+                    <textarea asp-for="BusinessGoal" class="form-control" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header bg-light fw-semibold">Scope &amp; Requirements</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label asp-for="Features" class="form-label">Features <small class="text-muted">(one per line)</small></label>
+                    <textarea asp-for="Features" class="form-control" rows="5"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label asp-for="TargetUsers" class="form-label">Target Users <small class="text-muted">(one per line)</small></label>
+                    <textarea asp-for="TargetUsers" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label asp-for="Platforms" class="form-label">Platforms <small class="text-muted">(one per line)</small></label>
+                    <textarea asp-for="Platforms" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label asp-for="DesignRequirements" class="form-label">Design Requirements <small class="text-muted">(one per line)</small></label>
+                    <textarea asp-for="DesignRequirements" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label asp-for="TechnicalConstraints" class="form-label">Technical Constraints <small class="text-muted">(one per line)</small></label>
+                    <textarea asp-for="TechnicalConstraints" class="form-control" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header bg-light fw-semibold">Timeline &amp; Budget</div>
+            <div class="card-body row">
+                <div class="col-sm-6 mb-3">
+                    <label asp-for="Timeline" class="form-label">Timeline</label>
+                    <input asp-for="Timeline" class="form-control" />
+                </div>
+                <div class="col-sm-6 mb-3">
+                    <label asp-for="Budget" class="form-label">Budget</label>
+                    <input asp-for="Budget" class="form-control" />
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-light fw-semibold">Markdown Output <small class="text-muted fw-normal">(optional)</small></div>
+            <div class="card-body">
+                <textarea asp-for="MarkdownOutput" class="form-control font-monospace" rows="10" style="font-size:0.85rem;"></textarea>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">Save Changes</button>
+            <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+    </form>
+</div>

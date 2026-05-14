@@ -43,6 +43,20 @@
                     📋 Copy Share Link
                 </button>
             }
+            @if (Model.Status == "confirmed")
+            {
+                <a asp-action="DownloadPdf" asp-route-id="@Model.Id"
+                   class="btn btn-success btn-sm">
+                    ⬇ Download PDF
+                </a>
+            }
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-secondary btn-sm">
+                ✏️ Edit Brief
+            </a>
+            <form asp-action="Delete" asp-route-id="@Model.Id" method="post"
+                  onsubmit="return confirm('Delete this brief? This cannot be undone.');">
+                <button type="submit" class="btn btn-outline-danger btn-sm">🗑 Delete</button>
+            </form>
         </div>
     </div>
 
@@ -241,7 +255,7 @@
                     </div>
                     <div class="mt-3 small text-muted">
                         <div><strong>Brief ID:</strong> @Model.Id.ToString().Substring(0, 8)...</div>
-                        <div><strong>Intake ID:</strong> @Model.IntakeSessionId.ToString().Substring(0, 8)...</div>
+                        <div><strong>Project ID:</strong> @Model.IntakeSessionId.ToString().Substring(0, 8)...</div>
                     </div>
                 </div>
             </div>
